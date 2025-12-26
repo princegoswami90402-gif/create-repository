@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="gu">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>NALANDA STUDENT BANK— Full (Frontend)</title>
+
+<style>
+:root{--bg:#f4f7fb;--card:#fff;--accent:#164ea6;--muted:#6b7280}
+*{box-sizing:border-box;font-family:Inter,Arial}
+body{margin:0;background:var(--bg)}
+header{background:var(--accent);color:#fff;padding:12px}
+.wrap{max-width:1100px;margin:16px auto}
+.grid{display:grid;grid-template-columns:320px 1fr;gap:16px}
+.card{background:#fff;padding:14px;border-radius:10px}
+label{font-size:13px;color:var(--muted);display:block;margin-top:8px}
+input,select,button{padding:8px;border-radius:6px;border:1px solid #ddd;width:100%}
+button{background:var(--accent);color:#fff;border:none;cursor:pointer;margin-top:10px}
+.pill{background:#eef3ff;padding:8px;border-radius:8px}
+.acc-item{padding:8px;border:1px solid #eee;margin-bottom:6px;border-radius:6px}
+.small{font-size:12px;color:var(--muted)}
+.deleteBtn{background:#810505}
+</style>
+</head>
+
+<body>
+
+<header>
+<strong>NALANDA STUDENT BANK</strong>
+</header>
+
+<div class="wrap">
+<div class="grid">
+
+<!-- LEFT -->
+<div class="card">
+<h3>Account બનાવો</h3>
+
+<label>Name</label>
+<input id="newName">
+
+<label>Ac no</label>
+<input id="newAccountNo">
+
+<label>Class</label>
+<input id="newClass">
+
+<label>Roll no</label>
+<input id="newRoll">
+
+<label>Opening Balance</label>
+<input id="newOpening" type="number">
+
+<label>4 Digit PIN</label>
+<input id="newPin" type="password" maxlength="4" placeholder="****">
+
+<button onclick="createAccount()">Create</button>
+
+<hr>
+
+<input id="searchBox" placeholder="Search by Class / Roll" oninput="renderAccounts()">
+<button onclick="exportAllStatement()">Export ALL Accounts Statement</button>
+ 
+<label>From Date</label>
+<input type="date" id="fromDate">
+
+<label>To Date</label>
+<input type="date" id="toDate">
+
+<button onclick="exportDateWiseStatement()">Export Date-wise Statement</button>
+<div id="accList"></div>
+</div>
+
+<!-- RIGHT -->
+<div class="card">
+<h3 id="title">Select Account</h3>
+
+
+<div id="accountPanel" style="display:none">
+
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+  <div class="pill">Opening: <strong id="openAmt"></strong></div>
+  <div class="pill">Current: <strong id="curAmt"></strong></div>
+  <div class="pill">Deposits: <strong id="totDep"></strong></div>
+  <div class="pill">Withdraws: <strong id="totWith"></strong></div>
+  <div class="pill">Account No: <strong id="accnum"></strong></div>
+  <div class="pill">Class: <strong id="clsnum"></strong></div>
+  <div class="pill">Roll: <strong id="ROLLnum"></strong></div>
+</div>
+
+<br>
+
+<select id="txnType">
+<option value="Deposit">Deposit</option>
+<option value="Withdraw">Withdraw</option>
+</select>
+
+<input id="txnAmount" type="number" placeholder="Amount">
+<input id="txnNote" placeholder="Note">
+
+<button onclick="addTxn()">Add Transaction</button>
+<button onclick="exportCSV()">Export CSV</button>
+<button onclick="printPassbook()">Print Passbook</button>
+<button onclick="editAccount()">Edit Account</button>
+<button class="deleteBtn" onclick="deleteAccount()">Delete Account</button>
+
+<table border ="1" width="100%" style="margin-top:10px">
+<thead>
+<tr><th>#</th><th>Date</th><th>Type</th><th>Amount</th><th>Note</th><th>Balance</th></tr>
+</thead>
+<tbody id="txBody"></tbody>
+</table>
+</div>
+</div>
+</div>
+</div>
+<div id="printArea"></div>
+
+<script>
+const LS_KEY="SCHOOL_BANK_FULL_V1";
+let accounts=JSON.parse(localStorage.getItem(LS_KEY)||"[]");
+let currentAcc=null;
+
+function save(){localStorage.setItem(LS_KEY,JSON.stringify(accounts));}
+function fmt(n){return "₹ "+Number(n).toFixed(2);}
+function uid(){return Date.now()+"_"+Math.floor(Math.random()*1000);}
+
+function createAccount(){
+ const pin=newPin.value.trim();
+ if(!/^\d{4}$/.test(pin)){ alert("4 digit PIN જરૂરી છે"); return; }
+
+ const acc={
+  id:uid(),
+  name:newName.value,
+  accountNo:newAccountNo.value,
+  cls:newClass.value,
+  roll:newRoll.value,
+  opening:Number(newOpening.value)||0,
+  pin:pin,
+  tx:[]
+ };
+
+ if(acc.opening>0){
+  acc.tx.push({type:'Deposit',amount:acc.opening,date:new Date().toISOString(),note:'Opening'});
+ }
+
+ accounts.push(acc);
+ save();
+ renderAccounts();
+}
+
+function renderAccounts(){
+ const q=(searchBox.value||"").toLowerCase();
+ accList.innerHTML="";
+ accounts.filter(a=>
+  !q || a.cls.toLowerCase().includes(q) || a.roll.toLowerCase().includes(q)
+ ).forEach(a=>{
+  accList.innerHTML+=`
+   <div class="acc-item">
+    ${a.name}<br>
+    <span class="small">Class ${a.cls} | Roll ${a.roll}</span><br>
+    <button onclick="openAcc('${a.id}')">Open</button>
+   </div>`;
+ });
+}
+
+function openAcc(id){
+ const acc=accounts.find(a=>a.id===id);
+ const entered=prompt("Enter 4 digit PIN");
+ if(entered===null) return;
+ if(entered!==acc.pin){ alert("Wrong PIN"); return; }
+
+ currentAcc=acc;
+ title.textContent=currentAcc.name;
+ accountPanel.style.display="block";
+ updateUI();
+}
+
+function getBalance(){
+ let b=currentAcc.opening;
+ currentAcc.tx.forEach(t=>b+=t.type==='Deposit'?t.amount:-t.amount);
+ return b;
+}
+
+function addTxn(){
+ const amt=Number(txnAmount.value);
+ if(txnType.value==='Withdraw' && amt>getBalance()){alert("Insufficient");return;}
+ currentAcc.tx.push({type:txnType.value,amount:amt,date:new Date().toISOString(),note:txnNote.value});
+ save(); updateUI();
+}
+
+function updateUI(){
+ openAmt.textContent=fmt(currentAcc.opening);
+ curAmt.textContent=fmt(getBalance());
+ totDep.textContent=fmt(currentAcc.tx.filter(t=>t.type==='Deposit').reduce((s,t)=>s+t.amount,0));
+ totWith.textContent=fmt(currentAcc.tx.filter(t=>t.type==='Withdraw').reduce((s,t)=>s+t.amount,0));
+ accnum.textContent=currentAcc.accountNo;
+ clsnum.textContent=currentAcc.cls;
+ ROLLnum.textContent=currentAcc.roll;
+
+ txBody.innerHTML="";
+ let run=currentAcc.opening;
+ currentAcc.tx.forEach((t,i)=>{
+  run+=t.type==='Deposit'?t.amount:-t.amount;
+  txBody.innerHTML+=`<tr>
+   <td>${i+1}</td><td>${new Date(t.date).toLocaleString()}</td>
+   <td>${t.type}</td><td>${fmt(t.amount)}</td>
+   <td>${t.note}</td><td>${fmt(run)}</td></tr>`;
+ });
+}
+function editAccount(){
+ if(!currentAcc) return;
+
+ const pin=prompt("Edit કરવા PIN દાખલ કરો");
+ if(pin!==currentAcc.pin){
+  alert("Wrong PIN");
+  return;
+ }
+
+ const newNameVal=prompt("Name",currentAcc.name);
+ if(newNameVal===null) return;
+
+ const newAccNo=prompt("Account No",currentAcc.accountNo);
+ const newCls=prompt("Class",currentAcc.cls);
+ const newRollVal=prompt("Roll No",currentAcc.roll);
+
+ currentAcc.name=newNameVal;
+ currentAcc.accountNo=newAccNo;
+ currentAcc.cls=newCls;
+ currentAcc.roll=newRollVal;
+
+ save();
+ renderAccounts();
+ updateUI();
+ title.textContent=currentAcc.name;
+
+ alert("Account successfully updated");
+}
+function printAllStatement(){
+ let html="<h2>All Accounts Statement</h2>";
+
+ accounts.forEach(acc=>{
+  let bal=acc.opening;
+  html+=`
+  <h3>${acc.name} (${acc.accountNo})</h3>
+  <p>Class ${acc.cls} | Roll ${acc.roll}</p>
+  <table border="1" width="100%">
+  <tr><th>Date</th><th>Type</th><th>Amount</th><th>Balance</th></tr>
+  `;
+
+  acc.tx.forEach(t=>{
+   bal+=t.type==="Deposit"?t.amount:-t.amount;
+   html+=`<tr>
+    <td>${new Date(t.date).toLocaleString()}</td>
+    <td>${t.type}</td>
+    <td>${t.amount}</td>
+    <td>${bal}</td>
+   </tr>`;
+  });
+
+  html+="</table><hr>";
+ });
+
+ printArea.innerHTML=html;
+ window.print();
+}
+
+/* DELETE ACCOUNT */
+function deleteAccount(){
+ if(!currentAcc) return;
+ if(!confirm("આ account અને તેની બધી transactions delete કરવી છે?")) return;
+ accounts=accounts.filter(a=>a.id!==currentAcc.id);
+ currentAcc=null;
+ save();
+ renderAccounts();
+ accountPanel.style.display="none";
+ title.textContent="Select Account";
+}
+
+function exportCSV(){
+ let csv="AccountNo,Class,Roll,Type,Amount\n";
+ currentAcc.tx.forEach(t=>{
+  csv+=`${currentAcc.accountNo},${currentAcc.cls},${currentAcc.roll},${t.type},${t.amount}\n`;
+ });
+ const a=document.createElement("a");
+ a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+ a.download="passbook.csv";
+ a.click();
+}
+function printPassbook(){
+ printArea.innerHTML=`
+ <h2>Passbook</h2>
+ <p>Account: ${currentAcc.name}</p>
+ <p>Account No: ${currentAcc.accountNo}</p>
+ <p>Class: ${currentAcc.cls} | Roll: ${currentAcc.roll}</p>`;
+ window.print();
+}
+renderAccounts();
+</script>
+<script>
+function exportAllStatement(){
+ let csv = "Name,AccountNo,Class,Roll,Date,Type,Amount,Balance\n";
+
+ accounts.forEach(acc=>{
+  let balance = acc.opening;
+
+  if(acc.tx.length===0){
+   csv += `${acc.name},${acc.accountNo},${acc.cls},${acc.roll},-,Opening,${acc.opening},${acc.opening}\n`;
+  }
+
+  acc.tx.forEach(t=>{
+   balance += (t.type==="Deposit" ? t.amount : -t.amount);
+   csv += `${acc.name},${acc.accountNo},${acc.cls},${acc.roll},${new Date(t.date).toLocaleString()},${t.type},${t.amount},${balance}\n`;
+  });
+ });
+
+ const a=document.createElement("a");
+ a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+ a.download="ALL_ACCOUNTS_STATEMENT.csv";
+ a.click();
+}
+</script>
+<script>
+function exportDateWiseStatement(){
+ if(!fromDate.value || !toDate.value){
+  alert("From અને To તારીખ પસંદ કરો");
+  return;
+ }
+
+ const from = new Date(fromDate.value);
+ const to = new Date(toDate.value);
+ to.setHours(23,59,59,999);
+
+ let csv = "Name,AccountNo,Class,Roll,Date,Type,Amount,Balance\n";
+
+ accounts.forEach(acc=>{
+  let balance = acc.opening;
+
+  acc.tx.forEach(t=>{
+   const txDate = new Date(t.date);
+
+   // balance always update
+   balance += (t.type==="Deposit" ? t.amount : -t.amount);
+
+   if(txDate>=from && txDate<=to){
+    csv += `${acc.name},${acc.accountNo},${acc.cls},${acc.roll},${txDate.toLocaleString()},${t.type},${t.amount},${balance}\n`;
+   }
+  });
+ });
+
+ if(csv.split("\n").length<=1){
+  alert("આ તારીખ વચ્ચે કોઈ transaction નથી");
+  return;
+ }
+
+ const a=document.createElement("a");
+ a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+ a.download="DATE_WISE_STATEMENT.csv";
+ a.click();
+}
+</script>
+
+</body>
+</html>
